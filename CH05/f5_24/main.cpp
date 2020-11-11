@@ -11,13 +11,27 @@
 double getParallelForTime(const std::vector<uint8_t>& image, 
                           std::vector<tbb::atomic<int>>& hist)
 {
+    using vector_t = std::vector<int>;
+    using priv_h_t = tbb::enumerable_thread_specific<vector_t>;
+    priv_h_t priv_h(num_bins);
     tbb::tick_count t0 = tbb::tick_count::now();
     parallel_for(
         tbb::blocked_range<size_t>(0, image.size()),
         [&](const tbb::blocked_range<size_t>& r){
+            priv_h_t::reference my_hist = priv_h.local();
             for(size_t i = r.begin(); i < r.end(); i++){
-                hist[image[i]]++;
+                my_hist[image[i]]++;
             }
+        }
+    );
+    //Sequential reduction of the private histograms
+    priv_h.combine_each(
+        [&](vector_t a){
+            std::transform(
+                hist.begin(), hist.end(),
+                a.begin(), hist.begin(),
+                std::plus<int>()
+            );
         }
     );
     tbb::tick_count t1 = tbb::tick_count::now();
